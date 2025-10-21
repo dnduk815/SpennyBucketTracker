@@ -1,10 +1,11 @@
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, LucideIcon } from "lucide-react";
 
 interface BucketCardProps {
   id: string;
   name: string;
+  icon?: LucideIcon;
   currentBalance: number;
   allocatedAmount: number;
   onClick?: () => void;
@@ -12,6 +13,7 @@ interface BucketCardProps {
 
 export default function BucketCard({
   name,
+  icon: Icon,
   currentBalance,
   allocatedAmount,
   onClick,
@@ -43,7 +45,10 @@ export default function BucketCard({
     >
       <div className="flex flex-col gap-4">
         <div className="flex items-start justify-between">
-          <h3 className="text-lg font-semibold" data-testid="text-bucket-name">{name}</h3>
+          <div className="flex items-center gap-2">
+            {Icon && <Icon className="w-5 h-5 text-muted-foreground" />}
+            <h3 className="text-lg font-semibold" data-testid="text-bucket-name">{name}</h3>
+          </div>
           {(isLow || isDepleted) && (
             <AlertCircle className={`w-5 h-5 ${getStatusColor()}`} data-testid="icon-status-alert" />
           )}

@@ -1,4 +1,5 @@
 import BucketCard from '../BucketCard';
+import { ShoppingCart, Car, Film } from 'lucide-react';
 
 export default function BucketCardExample() {
   return (
@@ -6,6 +7,7 @@ export default function BucketCardExample() {
       <BucketCard
         id="1"
         name="Groceries"
+        icon={ShoppingCart}
         currentBalance={450.00}
         allocatedAmount={600.00}
         onClick={() => console.log('Groceries bucket clicked')}
@@ -13,6 +15,7 @@ export default function BucketCardExample() {
       <BucketCard
         id="2"
         name="Transportation"
+        icon={Car}
         currentBalance={75.00}
         allocatedAmount={500.00}
         onClick={() => console.log('Transportation bucket clicked')}
@@ -20,6 +23,7 @@ export default function BucketCardExample() {
       <BucketCard
         id="3"
         name="Entertainment"
+        icon={Film}
         currentBalance={0}
         allocatedAmount={200.00}
         onClick={() => console.log('Entertainment bucket clicked')}

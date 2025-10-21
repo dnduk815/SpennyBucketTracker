@@ -3,19 +3,24 @@ import BucketCard from "@/components/BucketCard";
 import AddTransactionDialog from "@/components/AddTransactionDialog";
 import AddIncomeDialog from "@/components/AddIncomeDialog";
 import AllocateFundsDialog from "@/components/AllocateFundsDialog";
+import RemoveFundsDialog from "@/components/RemoveFundsDialog";
 import TransactionList from "@/components/TransactionList";
 import ThemeToggle from "@/components/ThemeToggle";
+import SelectBucketIconDialog, { getIconByName } from "@/components/SelectBucketIconDialog";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Plus, Wallet } from "lucide-react";
+import { Plus, Wallet, Settings, ShoppingCart, Car, Film, Utensils, type LucideIcon } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
+import { useLocation } from "wouter";
 
 interface Bucket {
   id: string;
   name: string;
+  icon?: LucideIcon;
+  iconName?: string;
   currentBalance: number;
   allocatedAmount: number;
 }
@@ -31,12 +36,13 @@ interface Transaction {
 
 export default function Dashboard() {
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
   
   const [buckets, setBuckets] = useState<Bucket[]>([
-    { id: "1", name: "Groceries", currentBalance: 450.00, allocatedAmount: 600.00 },
-    { id: "2", name: "Transportation", currentBalance: 75.00, allocatedAmount: 500.00 },
-    { id: "3", name: "Entertainment", currentBalance: 200.00, allocatedAmount: 200.00 },
-    { id: "4", name: "Dining Out", currentBalance: 150.00, allocatedAmount: 300.00 },
+    { id: "1", name: "Groceries", icon: ShoppingCart, iconName: "Shopping", currentBalance: 450.00, allocatedAmount: 600.00 },
+    { id: "2", name: "Transportation", icon: Car, iconName: "Transportation", currentBalance: 75.00, allocatedAmount: 500.00 },
+    { id: "3", name: "Entertainment", icon: Film, iconName: "Entertainment", currentBalance: 200.00, allocatedAmount: 200.00 },
+    { id: "4", name: "Dining Out", icon: Utensils, iconName: "Dining", currentBalance: 150.00, allocatedAmount: 300.00 },
   ]);
 
   const [transactions, setTransactions] = useState<Transaction[]>([
@@ -58,9 +64,12 @@ export default function Dashboard() {
     },
   ]);
 
+  const [totalIncome, setTotalIncome] = useState(2100.00);
   const [unallocatedFunds, setUnallocatedFunds] = useState(500.00);
   const [newBucketName, setNewBucketName] = useState("");
   const [newBucketDialogOpen, setNewBucketDialogOpen] = useState(false);
+  const [iconDialogOpen, setIconDialogOpen] = useState(false);
+  const [selectedIconForNewBucket, setSelectedIconForNewBucket] = useState("");
 
   const totalAllocated = buckets.reduce((sum, bucket) => sum + bucket.allocatedAmount, 0);
   const totalRemaining = buckets.reduce((sum, bucket) => sum + bucket.currentBalance, 0);
@@ -95,7 +104,13 @@ export default function Dashboard() {
   };
 
   const handleAddIncome = (amount: number, description: string) => {
+    setTotalIncome(totalIncome + amount);
     setUnallocatedFunds(unallocatedFunds + amount);
+  };
+
+  const handleRemoveFunds = (amount: number, reason: string) => {
+    setTotalIncome(totalIncome - amount);
+    setUnallocatedFunds(unallocatedFunds - amount);
   };
 
   const handleAllocate = (allocations: Record<string, number>) => {
@@ -117,15 +132,20 @@ export default function Dashboard() {
     e.preventDefault();
     if (!newBucketName.trim()) return;
 
+    const icon = selectedIconForNewBucket ? getIconByName(selectedIconForNewBucket) : undefined;
+
     const newBucket: Bucket = {
       id: Date.now().toString(),
       name: newBucketName.trim(),
+      icon,
+      iconName: selectedIconForNewBucket,
       currentBalance: 0,
       allocatedAmount: 0,
     };
 
     setBuckets([...buckets, newBucket]);
     setNewBucketName("");
+    setSelectedIconForNewBucket("");
     setNewBucketDialogOpen(false);
     
     toast({
@@ -142,7 +162,17 @@ export default function Dashboard() {
             <Wallet className="w-7 h-7 text-primary" />
             <h1 className="text-2xl font-bold" data-testid="text-app-title">Spenny</h1>
           </div>
-          <ThemeToggle />
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setLocation("/settings")}
+              data-testid="button-settings"
+            >
+              <Settings className="w-5 h-5" />
+            </Button>
+            <ThemeToggle />
+          </div>
         </div>
       </header>
 
@@ -152,6 +182,10 @@ export default function Dashboard() {
             <h2 className="text-3xl font-bold">Dashboard</h2>
             <div className="flex gap-2 flex-wrap">
               <AddIncomeDialog onAddIncome={handleAddIncome} />
+              <RemoveFundsDialog
+                unallocatedFunds={unallocatedFunds}
+                onRemoveFunds={handleRemoveFunds}
+              />
               <AllocateFundsDialog
                 buckets={buckets}
                 unallocatedFunds={unallocatedFunds}
@@ -164,7 +198,13 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            <Card className="p-4">
+              <div className="text-sm text-muted-foreground">Total Income</div>
+              <div className="text-2xl font-bold tabular-nums" data-testid="text-total-income">
+                ${totalIncome.toFixed(2)}
+              </div>
+            </Card>
             <Card className="p-4">
               <div className="text-sm text-muted-foreground">Total Allocated</div>
               <div className="text-2xl font-bold tabular-nums" data-testid="text-total-allocated">
@@ -217,11 +257,28 @@ export default function Dashboard() {
                       data-testid="input-bucket-name"
                     />
                   </div>
+                  
+                  <div className="space-y-2">
+                    <Label>Icon (optional)</Label>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full"
+                      onClick={() => setIconDialogOpen(true)}
+                      data-testid="button-select-icon"
+                    >
+                      {selectedIconForNewBucket ? `${selectedIconForNewBucket} icon selected` : "Choose an icon"}
+                    </Button>
+                  </div>
+
                   <div className="flex gap-2">
                     <Button
                       type="button"
                       variant="outline"
-                      onClick={() => setNewBucketDialogOpen(false)}
+                      onClick={() => {
+                        setNewBucketDialogOpen(false);
+                        setSelectedIconForNewBucket("");
+                      }}
                       className="flex-1"
                       data-testid="button-cancel"
                     >
@@ -252,6 +309,13 @@ export default function Dashboard() {
           <TransactionList transactions={transactions} buckets={buckets} />
         </section>
       </main>
+
+      <SelectBucketIconDialog
+        open={iconDialogOpen}
+        onOpenChange={setIconDialogOpen}
+        onSelect={setSelectedIconForNewBucket}
+        currentIcon={selectedIconForNewBucket}
+      />
     </div>
   );
 }

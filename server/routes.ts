@@ -1,15 +1,268 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
+import passport from "passport";
+import bcrypt from "bcrypt";
+import { z } from "zod";
 import { storage } from "./storage";
+import { 
+  requireAuth, 
+  validateRequest, 
+  errorHandler, 
+  asyncHandler 
+} from "./middleware";
+import { 
+  insertUserSchema, 
+  insertBucketSchema, 
+  insertTransactionSchema, 
+  insertIncomeRecordSchema 
+} from "@shared/schema";
+
+// Validation schemas
+const registerSchema = insertUserSchema.extend({
+  password: z.string().min(6, "Password must be at least 6 characters")
+});
+
+const loginSchema = z.object({
+  email: z.string().email(),
+  password: z.string()
+});
+
+const updateBucketSchema = insertBucketSchema.partial();
+
+const updateTransactionSchema = insertTransactionSchema.partial();
+
+const updateIncomeSchema = insertIncomeRecordSchema.partial();
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // put application routes here
-  // prefix all routes with /api
+  // Authentication routes
+  app.post("/api/auth/register", 
+    validateRequest(registerSchema),
+    asyncHandler(async (req, res) => {
+      const { username, email, name, password } = req.body;
+      
+      // Check if user already exists
+      const existingUser = await storage.getUserByEmail(email);
+      if (existingUser) {
+        return res.status(409).json({ message: "User already exists with this email" });
+      }
 
-  // use storage to perform CRUD operations on the storage interface
-  // e.g. storage.insertUser(user) or storage.getUserByUsername(username)
+      const existingUsername = await storage.getUserByUsername(username);
+      if (existingUsername) {
+        return res.status(409).json({ message: "Username already taken" });
+      }
+
+      // Hash password
+      const hashedPassword = await bcrypt.hash(password, 10);
+      
+      // Create user
+      const user = await storage.createUser({
+        username,
+        email,
+        name,
+        password: hashedPassword
+      });
+
+      // Auto-login after registration
+      req.login(user, (err) => {
+        if (err) {
+          return res.status(500).json({ message: "Registration successful but login failed" });
+        }
+        res.json({ 
+          message: "User registered successfully",
+          user: {
+            id: user.id,
+            username: user.username,
+            email: user.email,
+            name: user.name
+          }
+        });
+      });
+    })
+  );
+
+  app.post("/api/auth/login", 
+    validateRequest(loginSchema),
+    passport.authenticate("local", { 
+      failureMessage: "Invalid email or password" 
+    }),
+    (req, res) => {
+      res.json({ 
+        message: "Login successful",
+        user: {
+          id: req.user!.id,
+          username: req.user!.username,
+          email: req.user!.email,
+          name: req.user!.name
+        }
+      });
+    }
+  );
+
+  app.post("/api/auth/logout", (req, res) => {
+    req.logout((err) => {
+      if (err) {
+        return res.status(500).json({ message: "Logout failed" });
+      }
+      res.json({ message: "Logout successful" });
+    });
+  });
+
+  app.get("/api/auth/me", requireAuth, (req, res) => {
+    res.json({
+      user: {
+        id: req.user!.id,
+        username: req.user!.username,
+        email: req.user!.email,
+        name: req.user!.name
+      }
+    });
+  });
+
+  app.get("/api/auth/google", 
+    passport.authenticate("google", { scope: ["profile", "email"] })
+  );
+
+  app.get("/api/auth/google/callback",
+    passport.authenticate("google", { failureRedirect: "/auth?error=google" }),
+    (req, res) => {
+      res.redirect("/");
+    }
+  );
+
+  // Bucket routes
+  app.get("/api/buckets", requireAuth, 
+    asyncHandler(async (req, res) => {
+      const buckets = await storage.getBucketsByUserId(req.user!.id);
+      res.json({ buckets });
+    })
+  );
+
+  app.post("/api/buckets", requireAuth,
+    validateRequest(insertBucketSchema),
+    asyncHandler(async (req, res) => {
+      const bucket = await storage.createBucket({
+        ...req.body,
+        userId: req.user!.id
+      });
+      res.status(201).json({ bucket });
+    })
+  );
+
+  app.get("/api/buckets/:id", requireAuth,
+    asyncHandler(async (req, res) => {
+      const bucket = await storage.getBucket(req.params.id, req.user!.id);
+      if (!bucket) {
+        return res.status(404).json({ message: "Bucket not found" });
+      }
+      res.json({ bucket });
+    })
+  );
+
+  app.patch("/api/buckets/:id", requireAuth,
+    validateRequest(updateBucketSchema),
+    asyncHandler(async (req, res) => {
+      const bucket = await storage.updateBucket(req.params.id, req.user!.id, req.body);
+      res.json({ bucket });
+    })
+  );
+
+  app.delete("/api/buckets/:id", requireAuth,
+    asyncHandler(async (req, res) => {
+      await storage.deleteBucket(req.params.id, req.user!.id);
+      res.json({ message: "Bucket deleted successfully" });
+    })
+  );
+
+  // Transaction routes
+  app.get("/api/transactions", requireAuth,
+    asyncHandler(async (req, res) => {
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
+      const bucketId = req.query.bucketId as string;
+      
+      let transactions;
+      if (bucketId) {
+        transactions = await storage.getTransactionsByBucketId(bucketId, req.user!.id);
+      } else {
+        transactions = await storage.getTransactionsByUserId(req.user!.id, limit);
+      }
+      
+      res.json({ transactions });
+    })
+  );
+
+  app.post("/api/transactions", requireAuth,
+    validateRequest(insertTransactionSchema),
+    asyncHandler(async (req, res) => {
+      // Verify bucket belongs to user
+      const bucket = await storage.getBucket(req.body.bucketId, req.user!.id);
+      if (!bucket) {
+        return res.status(404).json({ message: "Bucket not found" });
+      }
+
+      // Create transaction
+      const transaction = await storage.createTransaction({
+        ...req.body,
+        userId: req.user!.id
+      });
+
+      // Update bucket balance
+      const newBalance = (parseFloat(bucket.currentBalance) - parseFloat(req.body.amount)).toString();
+      await storage.updateBucket(bucket.id, req.user!.id, { 
+        currentBalance: newBalance 
+      });
+
+      res.status(201).json({ transaction });
+    })
+  );
+
+  app.delete("/api/transactions/:id", requireAuth,
+    asyncHandler(async (req, res) => {
+      // Get transaction to find bucket
+      const transactions = await storage.getTransactionsByUserId(req.user!.id);
+      const transaction = transactions.find(t => t.id === req.params.id);
+      
+      if (!transaction) {
+        return res.status(404).json({ message: "Transaction not found" });
+      }
+
+      // Delete transaction
+      await storage.deleteTransaction(req.params.id, req.user!.id);
+
+      // Restore bucket balance
+      const bucket = await storage.getBucket(transaction.bucketId, req.user!.id);
+      if (bucket) {
+        const newBalance = (parseFloat(bucket.currentBalance) + parseFloat(transaction.amount)).toString();
+        await storage.updateBucket(bucket.id, req.user!.id, { 
+          currentBalance: newBalance 
+        });
+      }
+
+      res.json({ message: "Transaction deleted successfully" });
+    })
+  );
+
+  // Income routes
+  app.get("/api/income", requireAuth,
+    asyncHandler(async (req, res) => {
+      const incomeRecords = await storage.getIncomeRecordsByUserId(req.user!.id);
+      res.json({ incomeRecords });
+    })
+  );
+
+  app.post("/api/income", requireAuth,
+    validateRequest(insertIncomeRecordSchema),
+    asyncHandler(async (req, res) => {
+      const incomeRecord = await storage.createIncomeRecord({
+        ...req.body,
+        userId: req.user!.id
+      });
+      res.status(201).json({ incomeRecord });
+    })
+  );
+
+  // Error handling middleware
+  app.use(errorHandler);
 
   const httpServer = createServer(app);
-
   return httpServer;
 }

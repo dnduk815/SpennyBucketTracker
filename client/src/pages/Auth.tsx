@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Wallet } from "lucide-react";
 import { SiGoogle } from "react-icons/si";
-import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/api/useAuth";
 import { useLocation } from "wouter";
 
 export default function Auth() {
@@ -14,26 +14,30 @@ export default function Auth() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
-  const { toast } = useToast();
+  const [username, setUsername] = useState("");
+  const { register, login, isRegistering, isLoggingIn } = useAuth();
   const [, setLocation] = useLocation();
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
-    toast({
-      title: isSignUp ? "Account created" : "Signed in",
-      description: `Welcome${isSignUp ? " to Spenny" : " back"}!`,
-    });
-    
-    setLocation("/");
+
+    if (isSignUp) {
+      register({
+        username,
+        email,
+        name,
+        password,
+      });
+    } else {
+      login({
+        email,
+        password,
+      });
+    }
   };
 
   const handleGoogleAuth = () => {
-    toast({
-      title: "Google Sign In",
-      description: "Redirecting to Google authentication...",
-    });
-    setTimeout(() => setLocation("/"), 1000);
+    window.location.href = "/api/auth/google";
   };
 
   return (
@@ -52,17 +56,30 @@ export default function Auth() {
         <Card className="p-6">
           <form onSubmit={handleSubmit} className="space-y-4">
             {isSignUp && (
-              <div className="space-y-2">
-                <Label htmlFor="name">Full Name</Label>
-                <Input
-                  id="name"
-                  placeholder="John Doe"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  required
-                  data-testid="input-name"
-                />
-              </div>
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="name">Full Name</Label>
+                  <Input
+                    id="name"
+                    placeholder="John Doe"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    required
+                    data-testid="input-name"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="username">Username</Label>
+                  <Input
+                    id="username"
+                    placeholder="johndoe"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    required
+                    data-testid="input-username"
+                  />
+                </div>
+              </>
             )}
 
             <div className="space-y-2">
@@ -91,8 +108,17 @@ export default function Auth() {
               />
             </div>
 
-            <Button type="submit" className="w-full" data-testid="button-submit">
-              {isSignUp ? "Create Account" : "Sign In"}
+            <Button
+              type="submit"
+              className="w-full"
+              data-testid="button-submit"
+              disabled={isRegistering || isLoggingIn}
+            >
+              {isRegistering || isLoggingIn
+                ? "Please wait..."
+                : isSignUp
+                ? "Create Account"
+                : "Sign In"}
             </Button>
           </form>
 
@@ -120,7 +146,9 @@ export default function Auth() {
               onClick={() => setIsSignUp(!isSignUp)}
               data-testid="button-toggle-mode"
             >
-              {isSignUp ? "Already have an account? Sign in" : "Don't have an account? Sign up"}
+              {isSignUp
+                ? "Already have an account? Sign in"
+                : "Don't have an account? Sign up"}
             </button>
           </div>
         </Card>

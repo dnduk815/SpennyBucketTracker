@@ -39,6 +39,11 @@ export interface IncomeRecordResponse {
   incomeRecord: IncomeRecord;
 }
 
+export interface ReallocateFundsResponse {
+  message: string;
+  buckets: Bucket[];
+}
+
 // API Client class
 class ApiClient {
   private baseURL: string;
@@ -65,12 +70,30 @@ class ApiClient {
     try {
       const response = await fetch(url, config);
       
+      // Check content type to determine if response is JSON
+      const contentType = response.headers.get('content-type');
+      const isJson = contentType && contentType.includes('application/json');
+      
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || `HTTP ${response.status}`);
+        if (isJson) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.message || `HTTP ${response.status}`);
+        } else {
+          // Response is not JSON (probably HTML error page)
+          const text = await response.text();
+          console.error('Non-JSON error response:', text.substring(0, 200));
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
       }
 
-      return await response.json();
+      if (isJson) {
+        return await response.json();
+      } else {
+        // This shouldn't happen for successful responses, but handle it gracefully
+        const text = await response.text();
+        console.error('Non-JSON success response:', text.substring(0, 200));
+        throw new Error('Expected JSON response but received HTML');
+      }
     } catch (error) {
       console.error('API request failed:', error);
       throw error;
@@ -163,7 +186,7 @@ class ApiClient {
     bucketId: string;
     amount: string;
     description?: string;
-    date?: Date;
+    date?: string;
   }): Promise<TransactionResponse> {
     return this.request<TransactionResponse>('/transactions', {
       method: 'POST',
@@ -192,6 +215,61 @@ class ApiClient {
       body: JSON.stringify(incomeData),
     });
   }
+
+  async deleteIncomeRecord(id: string): Promise<{ message: string }> {
+    return this.request<{ message: string }>(`/income/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // Allocation history methods
+  async getAllocationHistory(options?: {
+    limit?: number;
+  }): Promise<{ allocationHistory: any[] }> {
+    const params = new URLSearchParams();
+    if (options?.limit) params.append('limit', options.limit.toString());
+    
+    const queryString = params.toString();
+    const endpoint = queryString ? `/allocations?${queryString}` : '/allocations';
+    
+    return this.request<{ allocationHistory: any[] }>(endpoint);
+  }
+
+  // Fund reallocation methods
+  async reallocateFunds(reallocationData: {
+    sourceBucketId: string;
+    destinationBucketId: string | null;
+    amount: string;
+    transferType: 'balance' | 'allocation';
+  }): Promise<ReallocateFundsResponse> {
+    return this.request<ReallocateFundsResponse>('/buckets/reallocate', {
+      method: 'POST',
+      body: JSON.stringify(reallocationData),
+    });
+  }
+
+  async allocateFunds(allocationData: {
+    allocations: Record<string, string>;
+    description?: string;
+  }): Promise<{ message: string; buckets: Bucket[] }> {
+    return this.request<{ message: string; buckets: Bucket[] }>('/buckets/allocate', {
+      method: 'POST',
+      body: JSON.stringify(allocationData),
+    });
+  }
+
+  // User management methods
+  async deleteAllUserData(): Promise<{ message: string }> {
+    return this.request<{ message: string }>('/user/data', {
+      method: 'DELETE',
+    });
+  }
+
+  async deleteAccount(): Promise<{ message: string }> {
+    return this.request<{ message: string }>('/user/account', {
+      method: 'DELETE',
+    });
+  }
 }
 
 // Export singleton instance
@@ -210,4 +288,5 @@ export type {
   TransactionResponse,
   IncomeResponse,
   IncomeRecordResponse,
+  ReallocateFundsResponse,
 };

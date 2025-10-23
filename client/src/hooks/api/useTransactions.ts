@@ -14,7 +14,7 @@ export const useTransactions = (options?: { limit?: number; bucketId?: string })
   });
 
   const createTransactionMutation = useMutation({
-    mutationFn: apiClient.createTransaction,
+    mutationFn: (transactionData) => apiClient.createTransaction(transactionData),
     onSuccess: (data) => {
       // Invalidate buckets to refresh balances
       queryClient.invalidateQueries({ queryKey: ["buckets"] });
@@ -39,7 +39,7 @@ export const useTransactions = (options?: { limit?: number; bucketId?: string })
   });
 
   const deleteTransactionMutation = useMutation({
-    mutationFn: apiClient.deleteTransaction,
+    mutationFn: (id: string) => apiClient.deleteTransaction(id),
     onSuccess: (_, transactionId) => {
       // Invalidate buckets to refresh balances
       queryClient.invalidateQueries({ queryKey: ["buckets"] });

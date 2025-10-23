@@ -14,7 +14,8 @@ import {
   insertUserSchema, 
   insertBucketSchema, 
   insertTransactionSchema, 
-  insertIncomeRecordSchema 
+  insertIncomeRecordSchema,
+  insertAllocationHistorySchema
 } from "@shared/schema";
 
 // Validation schemas
@@ -32,6 +33,19 @@ const updateBucketSchema = insertBucketSchema.partial();
 const updateTransactionSchema = insertTransactionSchema.partial();
 
 const updateIncomeSchema = insertIncomeRecordSchema.partial();
+
+const reallocateFundsSchema = z.object({
+  sourceBucketId: z.string(),
+  destinationBucketId: z.string().nullable(),
+  amount: z.string(),
+  transferType: z.enum(['balance', 'allocation']),
+  description: z.string().optional().nullable()
+});
+
+const allocateFundsSchema = z.object({
+  allocations: z.record(z.string(), z.string()), // bucketId -> amount
+  description: z.string().optional().nullable()
+});
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Authentication routes
@@ -62,20 +76,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         password: hashedPassword
       });
 
-      // Auto-login after registration
-      req.login(user, (err) => {
-        if (err) {
-          return res.status(500).json({ message: "Registration successful but login failed" });
+      res.json({ 
+        message: "User registered successfully",
+        user: {
+          id: user.id,
+          username: user.username,
+          email: user.email,
+          name: user.name
         }
-        res.json({ 
-          message: "User registered successfully",
-          user: {
-            id: user.id,
-            username: user.username,
-            email: user.email,
-            name: user.name
-          }
-        });
       });
     })
   );
@@ -173,6 +181,136 @@ export async function registerRoutes(app: Express): Promise<Server> {
     })
   );
 
+  app.post("/api/buckets/allocate", requireAuth,
+    validateRequest(allocateFundsSchema),
+    asyncHandler(async (req, res) => {
+      const { allocations, description } = req.body;
+      
+      // Validate allocations object
+      if (!allocations || typeof allocations !== 'object') {
+        return res.status(400).json({ message: "Invalid allocations data" });
+      }
+
+      const updatedBuckets = [];
+      
+      // Process each allocation
+      for (const [bucketId, amount] of Object.entries(allocations)) {
+        const allocationAmount = parseFloat(amount as string);
+        if (isNaN(allocationAmount) || allocationAmount <= 0) {
+          continue; // Skip invalid amounts
+        }
+
+        // Verify bucket belongs to user
+        const bucket = await storage.getBucket(bucketId, req.user!.id);
+        if (!bucket) {
+          return res.status(404).json({ message: `Bucket ${bucketId} not found` });
+        }
+
+        // Update bucket with new allocation
+        const newAllocatedAmount = (parseFloat(bucket.allocatedAmount) + allocationAmount).toString();
+        const newCurrentBalance = (parseFloat(bucket.currentBalance) + allocationAmount).toString();
+        
+        const updatedBucket = await storage.updateBucket(bucketId, req.user!.id, {
+          allocatedAmount: newAllocatedAmount,
+          currentBalance: newCurrentBalance
+        });
+        
+        updatedBuckets.push(updatedBucket);
+
+        // Create allocation history record for each bucket
+        await storage.createAllocationHistory({
+          userId: req.user!.id,
+          sourceBucketId: null, // New allocation from unallocated funds
+          destinationBucketId: bucketId,
+          amount: allocationAmount.toString(),
+          transferType: 'allocation',
+          description: description || null,
+          date: new Date()
+        });
+      }
+
+      res.json({ 
+        message: "Funds allocated successfully",
+        buckets: updatedBuckets
+      });
+    })
+  );
+
+  app.post("/api/buckets/reallocate", requireAuth,
+    validateRequest(reallocateFundsSchema),
+    asyncHandler(async (req, res) => {
+      console.log("Reallocate endpoint called with:", req.body);
+      const { sourceBucketId, destinationBucketId, amount, transferType } = req.body;
+      
+      // Verify source bucket belongs to user
+      const sourceBucket = await storage.getBucket(sourceBucketId, req.user!.id);
+      if (!sourceBucket) {
+        return res.status(404).json({ message: "Source bucket not found" });
+      }
+
+      // Verify destination bucket belongs to user (if not null/Unallocated)
+      let destinationBucket = null;
+      if (destinationBucketId) {
+        destinationBucket = await storage.getBucket(destinationBucketId, req.user!.id);
+        if (!destinationBucket) {
+          return res.status(404).json({ message: "Destination bucket not found" });
+        }
+      }
+
+      // Validate amount
+      const transferAmount = parseFloat(amount);
+      if (isNaN(transferAmount) || transferAmount <= 0) {
+        return res.status(400).json({ message: "Invalid amount" });
+      }
+
+      // Check if source bucket has sufficient funds
+      const availableAmount = transferType === 'balance' 
+        ? parseFloat(sourceBucket.currentBalance)
+        : parseFloat(sourceBucket.allocatedAmount);
+      
+      if (transferAmount > availableAmount) {
+        return res.status(400).json({ 
+          message: `Insufficient funds. Available: $${availableAmount.toFixed(2)}` 
+        });
+      }
+
+      // Perform the reallocation
+      try {
+        console.log("About to call storage.reallocateFunds");
+        const result = await storage.reallocateFunds(
+          sourceBucketId,
+          destinationBucketId,
+          transferAmount,
+          transferType,
+          req.user!.id
+        );
+        console.log("Storage reallocateFunds completed successfully:", result);
+
+        // Create allocation history record
+        await storage.createAllocationHistory({
+          userId: req.user!.id,
+          sourceBucketId,
+          destinationBucketId,
+          amount: transferAmount.toString(),
+          transferType: 'reallocation',
+          description: req.body.description || null,
+          date: new Date()
+        });
+
+        res.json({ 
+          message: "Funds reallocated successfully",
+          buckets: result.buckets
+        });
+      } catch (error) {
+        console.error("Error in reallocation:", error);
+        res.status(500).json({ 
+          message: "Reallocation failed",
+          error: error instanceof Error ? error.message : "Unknown error"
+        });
+      }
+    })
+  );
+
   // Transaction routes
   app.get("/api/transactions", requireAuth,
     asyncHandler(async (req, res) => {
@@ -202,7 +340,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Create transaction
       const transaction = await storage.createTransaction({
         ...req.body,
-        userId: req.user!.id
+        userId: req.user!.id,
+        date: req.body.date || new Date()
       });
 
       // Update bucket balance
@@ -254,9 +393,99 @@ export async function registerRoutes(app: Express): Promise<Server> {
     asyncHandler(async (req, res) => {
       const incomeRecord = await storage.createIncomeRecord({
         ...req.body,
-        userId: req.user!.id
+        userId: req.user!.id,
+        date: req.body.date || new Date()
       });
       res.status(201).json({ incomeRecord });
+    })
+  );
+
+  app.delete("/api/income/:id", requireAuth,
+    asyncHandler(async (req, res) => {
+      await storage.deleteIncomeRecord(req.params.id, req.user!.id);
+      res.json({ message: "Income record deleted successfully" });
+    })
+  );
+
+  // Allocation history routes
+  app.get("/api/allocations", requireAuth,
+    asyncHandler(async (req, res) => {
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
+      const allocationHistory = await storage.getAllocationHistoryByUserId(req.user!.id, limit);
+      res.json({ allocationHistory });
+    })
+  );
+
+  // User management routes
+  app.delete("/api/user/data", requireAuth,
+    asyncHandler(async (req, res) => {
+      const userId = req.user!.id;
+      
+      // Delete all user's transactions first (to handle MemStorage which doesn't have cascade deletes)
+      const transactions = await storage.getTransactionsByUserId(userId);
+      for (const transaction of transactions) {
+        await storage.deleteTransaction(transaction.id, userId);
+      }
+      
+      // Delete all user's buckets
+      const buckets = await storage.getBucketsByUserId(userId);
+      for (const bucket of buckets) {
+        await storage.deleteBucket(bucket.id, userId);
+      }
+      
+      // Delete all user's income records
+      const incomeRecords = await storage.getIncomeRecordsByUserId(userId);
+      for (const incomeRecord of incomeRecords) {
+        await storage.deleteIncomeRecord(incomeRecord.id, userId);
+      }
+      
+      res.json({ message: "All user data deleted successfully" });
+    })
+  );
+
+  app.delete("/api/user/account", requireAuth,
+    asyncHandler(async (req, res) => {
+      const userId = req.user!.id;
+      
+      // First, logout and destroy the session to prevent session serialization errors
+      await new Promise<void>((resolve, reject) => {
+        req.logout((err) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+          
+          // Destroy the session after logout
+          req.session.destroy((sessionErr) => {
+            if (sessionErr) {
+              reject(sessionErr);
+            } else {
+              resolve();
+            }
+          });
+        });
+      });
+      
+      // Now delete all user data
+      const transactions = await storage.getTransactionsByUserId(userId);
+      for (const transaction of transactions) {
+        await storage.deleteTransaction(transaction.id, userId);
+      }
+      
+      const buckets = await storage.getBucketsByUserId(userId);
+      for (const bucket of buckets) {
+        await storage.deleteBucket(bucket.id, userId);
+      }
+      
+      const incomeRecords = await storage.getIncomeRecordsByUserId(userId);
+      for (const incomeRecord of incomeRecords) {
+        await storage.deleteIncomeRecord(incomeRecord.id, userId);
+      }
+      
+      // Finally, delete the user account
+      await storage.deleteUser(userId);
+      
+      res.json({ message: "Account deleted successfully" });
     })
   );
 

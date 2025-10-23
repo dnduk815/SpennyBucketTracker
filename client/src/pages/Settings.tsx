@@ -1,26 +1,100 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { ArrowLeft, User, Bell, Shield, Trash2 } from "lucide-react";
+import { ArrowLeft, User, Bell, Shield, Trash2, LogOut } from "lucide-react";
 import { useLocation } from "wouter";
 import ThemeToggle from "@/components/ThemeToggle";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/api/useAuth";
+import { apiClient } from "@/lib/api";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 export default function Settings() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const [name, setName] = useState("John Doe");
-  const [email, setEmail] = useState("john.doe@example.com");
+  const { user, isLoading, logout, isLoggingOut } = useAuth();
+
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [isDeletingData, setIsDeletingData] = useState(false);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+
+  // Update form fields when user data loads
+  useEffect(() => {
+    if (user) {
+      setName(user.name);
+      setEmail(user.email);
+    }
+  }, [user]);
 
   const handleSave = () => {
     toast({
       title: "Settings saved",
       description: "Your profile has been updated successfully.",
     });
+  };
+
+  const handleDeleteAllData = async () => {
+    setIsDeletingData(true);
+    try {
+      await apiClient.deleteAllUserData();
+      toast({
+        title: "Data deleted",
+        description: "All your buckets and transactions have been removed.",
+      });
+      // Refresh the page to show empty state
+      window.location.reload();
+    } catch (error) {
+      toast({
+        title: "Failed to delete data",
+        description:
+          error instanceof Error ? error.message : "An error occurred",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDeletingData(false);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    setIsDeletingAccount(true);
+    try {
+      await apiClient.deleteAccount();
+      toast({
+        title: "Account deleted",
+        description: "Your account has been permanently deleted.",
+      });
+      // Redirect to auth page
+      setLocation("/auth");
+    } catch (error) {
+      toast({
+        title: "Failed to delete account",
+        description:
+          error instanceof Error ? error.message : "An error occurred",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDeletingAccount(false);
+    }
+  };
+
+  const handleLogout = () => {
+    logout();
+    setLocation("/auth");
   };
 
   return (
@@ -46,11 +120,23 @@ export default function Settings() {
         <Card className="p-6">
           <div className="flex items-center gap-4 mb-6">
             <Avatar className="w-20 h-20">
-              <AvatarFallback className="text-2xl">JD</AvatarFallback>
+              <AvatarFallback className="text-2xl">
+                {isLoading
+                  ? "..."
+                  : user
+                  ? user.name
+                      .split(" ")
+                      .map((n) => n[0])
+                      .join("")
+                      .toUpperCase()
+                  : "U"}
+              </AvatarFallback>
             </Avatar>
             <div>
               <h2 className="text-2xl font-semibold">Profile</h2>
-              <p className="text-sm text-muted-foreground">Manage your account information</p>
+              <p className="text-sm text-muted-foreground">
+                Manage your account information
+              </p>
             </div>
           </div>
 
@@ -59,8 +145,9 @@ export default function Settings() {
               <Label htmlFor="name">Full Name</Label>
               <Input
                 id="name"
-                value={name}
+                value={isLoading ? "Loading..." : name}
                 onChange={(e) => setName(e.target.value)}
+                disabled={isLoading}
                 data-testid="input-name"
               />
             </div>
@@ -70,14 +157,19 @@ export default function Settings() {
               <Input
                 id="email"
                 type="email"
-                value={email}
+                value={isLoading ? "Loading..." : email}
                 onChange={(e) => setEmail(e.target.value)}
+                disabled={isLoading}
                 data-testid="input-email"
               />
             </div>
 
-            <Button onClick={handleSave} data-testid="button-save-profile">
-              Save Changes
+            <Button
+              onClick={handleSave}
+              disabled={isLoading}
+              data-testid="button-save-profile"
+            >
+              {isLoading ? "Loading..." : "Save Changes"}
             </Button>
           </div>
         </Card>
@@ -87,7 +179,9 @@ export default function Settings() {
             <Bell className="w-5 h-5" />
             <div>
               <h3 className="text-lg font-semibold">Notifications</h3>
-              <p className="text-sm text-muted-foreground">Configure your notification preferences</p>
+              <p className="text-sm text-muted-foreground">
+                Configure your notification preferences
+              </p>
             </div>
           </div>
 
@@ -97,9 +191,15 @@ export default function Settings() {
             <div className="flex items-center justify-between">
               <div>
                 <div className="font-medium">Low balance alerts</div>
-                <div className="text-sm text-muted-foreground">Get notified when buckets are running low</div>
+                <div className="text-sm text-muted-foreground">
+                  Get notified when buckets are running low
+                </div>
               </div>
-              <Button variant="outline" size="sm" data-testid="button-toggle-low-balance">
+              <Button
+                variant="outline"
+                size="sm"
+                data-testid="button-toggle-low-balance"
+              >
                 Enabled
               </Button>
             </div>
@@ -107,9 +207,15 @@ export default function Settings() {
             <div className="flex items-center justify-between">
               <div>
                 <div className="font-medium">Weekly summaries</div>
-                <div className="text-sm text-muted-foreground">Receive weekly spending reports</div>
+                <div className="text-sm text-muted-foreground">
+                  Receive weekly spending reports
+                </div>
               </div>
-              <Button variant="outline" size="sm" data-testid="button-toggle-weekly">
+              <Button
+                variant="outline"
+                size="sm"
+                data-testid="button-toggle-weekly"
+              >
                 Disabled
               </Button>
             </div>
@@ -121,7 +227,9 @@ export default function Settings() {
             <Shield className="w-5 h-5" />
             <div>
               <h3 className="text-lg font-semibold">Security</h3>
-              <p className="text-sm text-muted-foreground">Manage your security settings</p>
+              <p className="text-sm text-muted-foreground">
+                Manage your security settings
+              </p>
             </div>
           </div>
 
@@ -130,10 +238,34 @@ export default function Settings() {
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div>
-                <div className="font-medium">Change password</div>
-                <div className="text-sm text-muted-foreground">Update your account password</div>
+                <div className="font-medium">Sign out</div>
+                <div className="text-sm text-muted-foreground">
+                  Log out of your account
+                </div>
               </div>
-              <Button variant="outline" size="sm" data-testid="button-change-password">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleLogout}
+                disabled={isLoggingOut}
+                data-testid="button-logout"
+              >
+                {isLoggingOut ? "Signing out..." : "Sign Out"}
+              </Button>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="font-medium">Change password</div>
+                <div className="text-sm text-muted-foreground">
+                  Update your account password
+                </div>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                data-testid="button-change-password"
+              >
                 Change
               </Button>
             </div>
@@ -141,9 +273,15 @@ export default function Settings() {
             <div className="flex items-center justify-between">
               <div>
                 <div className="font-medium">Two-factor authentication</div>
-                <div className="text-sm text-muted-foreground">Add an extra layer of security</div>
+                <div className="text-sm text-muted-foreground">
+                  Add an extra layer of security
+                </div>
               </div>
-              <Button variant="outline" size="sm" data-testid="button-toggle-2fa">
+              <Button
+                variant="outline"
+                size="sm"
+                data-testid="button-toggle-2fa"
+              >
                 Enable
               </Button>
             </div>
@@ -154,8 +292,12 @@ export default function Settings() {
           <div className="flex items-center gap-3 mb-4">
             <Trash2 className="w-5 h-5 text-destructive" />
             <div>
-              <h3 className="text-lg font-semibold text-destructive">Danger Zone</h3>
-              <p className="text-sm text-muted-foreground">Irreversible actions</p>
+              <h3 className="text-lg font-semibold text-destructive">
+                Danger Zone
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                Irreversible actions
+              </p>
             </div>
           </div>
 
@@ -165,21 +307,81 @@ export default function Settings() {
             <div className="flex items-center justify-between">
               <div>
                 <div className="font-medium">Delete all data</div>
-                <div className="text-sm text-muted-foreground">Remove all buckets and transactions</div>
+                <div className="text-sm text-muted-foreground">
+                  Remove all buckets and transactions
+                </div>
               </div>
-              <Button variant="destructive" size="sm" data-testid="button-delete-data">
-                Delete Data
-              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    data-testid="button-delete-data"
+                  >
+                    Delete Data
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete All Data</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This action will permanently delete all your buckets,
+                      transactions, and income records. This action cannot be
+                      undone. Are you sure you want to continue?
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={handleDeleteAllData}
+                      disabled={isDeletingData}
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    >
+                      {isDeletingData ? "Deleting..." : "Delete All Data"}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </div>
 
             <div className="flex items-center justify-between">
               <div>
                 <div className="font-medium">Delete account</div>
-                <div className="text-sm text-muted-foreground">Permanently delete your account</div>
+                <div className="text-sm text-muted-foreground">
+                  Permanently delete your account
+                </div>
               </div>
-              <Button variant="destructive" size="sm" data-testid="button-delete-account">
-                Delete Account
-              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    data-testid="button-delete-account"
+                  >
+                    Delete Account
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete Account</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This action will permanently delete your account and all
+                      associated data. This action cannot be undone. Are you
+                      absolutely sure you want to continue?
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={handleDeleteAccount}
+                      disabled={isDeletingAccount}
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    >
+                      {isDeletingAccount ? "Deleting..." : "Delete Account"}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </div>
           </div>
         </Card>

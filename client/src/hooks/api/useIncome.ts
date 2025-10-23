@@ -14,19 +14,43 @@ export const useIncome = () => {
   });
 
   const createIncomeMutation = useMutation({
-    mutationFn: apiClient.createIncomeRecord,
+    mutationFn: (incomeData) => apiClient.createIncomeRecord(incomeData),
     onSuccess: (data) => {
       queryClient.setQueryData(["income"], (old: any) => ({
         incomeRecords: [data.incomeRecord, ...(old?.incomeRecords || [])],
       }));
+      const amount = parseFloat(data.incomeRecord.amount);
+      const isNegative = amount < 0;
       toast({
-        title: "Income recorded",
-        description: `$${data.incomeRecord.amount} added`,
+        title: isNegative ? "Funds removed" : "Income recorded",
+        description: isNegative 
+          ? `$${Math.abs(amount).toFixed(2)} removed from unallocated funds`
+          : `$${amount.toFixed(2)} added`,
       });
     },
     onError: (error: Error) => {
       toast({
         title: "Failed to record income",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const deleteIncomeMutation = useMutation({
+    mutationFn: (id: string) => apiClient.deleteIncomeRecord(id),
+    onSuccess: (_, deletedId) => {
+      queryClient.setQueryData(["income"], (old: any) => ({
+        incomeRecords: (old?.incomeRecords || []).filter((record: any) => record.id !== deletedId),
+      }));
+      toast({
+        title: "Funds removed",
+        description: "Income record deleted successfully",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to remove funds",
         description: error.message,
         variant: "destructive",
       });
@@ -39,5 +63,7 @@ export const useIncome = () => {
     error,
     createIncome: createIncomeMutation.mutate,
     isCreating: createIncomeMutation.isPending,
+    deleteIncome: deleteIncomeMutation.mutate,
+    isDeleting: deleteIncomeMutation.isPending,
   };
 };

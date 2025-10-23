@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express, { type Request, Response, NextFunction } from "express";
 import session from "express-session";
 import pgSession from "connect-pg-simple";
@@ -14,9 +15,6 @@ declare module 'http' {
   }
 }
 
-// Session configuration
-const PgSession = pgSession(session);
-
 app.use(express.json({
   verify: (req, _res, buf) => {
     req.rawBody = buf;
@@ -24,12 +22,8 @@ app.use(express.json({
 }));
 app.use(express.urlencoded({ extended: false }));
 
-// Session middleware
+// Session middleware - using default memory store for now
 app.use(session({
-  store: new PgSession({
-    conString: process.env.DATABASE_URL,
-    tableName: 'user_sessions'
-  }),
   secret: process.env.SESSION_SECRET || 'fallback-secret-key',
   resave: false,
   saveUninitialized: false,

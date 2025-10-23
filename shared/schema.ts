@@ -44,6 +44,25 @@ export const incomeRecords = pgTable("income_records", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const allocationHistory = pgTable("allocation_history", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  sourceBucketId: varchar("source_bucket_id").references(() => buckets.id, { onDelete: "cascade" }),
+  destinationBucketId: varchar("destination_bucket_id").references(() => buckets.id, { onDelete: "cascade" }),
+  amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
+  transferType: varchar("transfer_type", { length: 20 }).notNull(), // 'allocation' | 'reallocation'
+  description: text("description"),
+  date: timestamp("date").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Session store table for connect-pg-simple
+export const userSessions = pgTable("user_sessions", {
+  sid: varchar("sid").primaryKey(),
+  sess: text("sess").notNull(),
+  expire: timestamp("expire").notNull(),
+});
+
 // Schemas for validation
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
@@ -59,17 +78,26 @@ export const insertBucketSchema = createInsertSchema(buckets).pick({
   currentBalance: true,
 });
 
-export const insertTransactionSchema = createInsertSchema(transactions).pick({
-  bucketId: true,
-  amount: true,
-  description: true,
-  date: true,
+export const insertTransactionSchema = z.object({
+  bucketId: z.string(),
+  amount: z.string().or(z.number().transform(String)),
+  description: z.string().optional().nullable(),
+  date: z.coerce.date().optional(),
 });
 
-export const insertIncomeRecordSchema = createInsertSchema(incomeRecords).pick({
-  amount: true,
-  description: true,
-  date: true,
+export const insertIncomeRecordSchema = z.object({
+  amount: z.string().or(z.number().transform(String)),
+  description: z.string().optional().nullable(),
+  date: z.coerce.date().optional(),
+});
+
+export const insertAllocationHistorySchema = z.object({
+  sourceBucketId: z.string().optional().nullable(),
+  destinationBucketId: z.string().optional().nullable(),
+  amount: z.string().or(z.number().transform(String)),
+  transferType: z.enum(['allocation', 'reallocation']),
+  description: z.string().optional().nullable(),
+  date: z.coerce.date().optional(),
 });
 
 // Types
@@ -81,3 +109,5 @@ export type InsertTransaction = z.infer<typeof insertTransactionSchema>;
 export type Transaction = typeof transactions.$inferSelect;
 export type InsertIncomeRecord = z.infer<typeof insertIncomeRecordSchema>;
 export type IncomeRecord = typeof incomeRecords.$inferSelect;
+export type InsertAllocationHistory = z.infer<typeof insertAllocationHistorySchema>;
+export type AllocationHistory = typeof allocationHistory.$inferSelect;

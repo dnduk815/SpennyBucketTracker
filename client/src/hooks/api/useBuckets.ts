@@ -14,7 +14,7 @@ export const useBuckets = () => {
   });
 
   const createBucketMutation = useMutation({
-    mutationFn: apiClient.createBucket,
+    mutationFn: (bucketData) => apiClient.createBucket(bucketData),
     onSuccess: (data) => {
       queryClient.setQueryData(["buckets"], (old: any) => ({
         buckets: [...(old?.buckets || []), data.bucket],
@@ -57,7 +57,7 @@ export const useBuckets = () => {
   });
 
   const deleteBucketMutation = useMutation({
-    mutationFn: apiClient.deleteBucket,
+    mutationFn: (bucketId: string) => apiClient.deleteBucket(bucketId),
     onSuccess: (_, bucketId) => {
       queryClient.setQueryData(["buckets"], (old: any) => ({
         buckets: (old?.buckets || []).filter((bucket: Bucket) => bucket.id !== bucketId),
@@ -76,6 +76,72 @@ export const useBuckets = () => {
     },
   });
 
+  const reallocateFundsMutation = useMutation({
+    mutationFn: (reallocationData: {
+      sourceBucketId: string;
+      destinationBucketId: string | null;
+      amount: string;
+      transferType: 'balance' | 'allocation';
+    }) => apiClient.reallocateFunds(reallocationData),
+    onSuccess: (data) => {
+      // Update the buckets cache with the returned updated buckets
+      queryClient.setQueryData(["buckets"], (old: any) => {
+        const updatedBuckets = [...(old?.buckets || [])];
+        data.buckets.forEach(updatedBucket => {
+          const index = updatedBuckets.findIndex((bucket: Bucket) => bucket.id === updatedBucket.id);
+          if (index !== -1) {
+            updatedBuckets[index] = updatedBucket;
+          }
+        });
+        return { buckets: updatedBuckets };
+      });
+      toast({
+        title: "Funds reallocated",
+        description: data.message,
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to reallocate funds",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const allocateFundsMutation = useMutation({
+    mutationFn: (allocationData: {
+      allocations: Record<string, string>;
+      description?: string;
+    }) => apiClient.allocateFunds(allocationData),
+    onSuccess: (data) => {
+      // Update buckets cache
+      queryClient.setQueryData(["buckets"], (old: any) => {
+        const updatedBuckets = [...(old?.buckets || [])];
+        data.buckets.forEach(updatedBucket => {
+          const index = updatedBuckets.findIndex((bucket: Bucket) => bucket.id === updatedBucket.id);
+          if (index !== -1) {
+            updatedBuckets[index] = updatedBucket;
+          }
+        });
+        return { buckets: updatedBuckets };
+      });
+      // Invalidate related queries
+      queryClient.invalidateQueries({ queryKey: ["allocations"] });
+      toast({
+        title: "Funds allocated",
+        description: data.message,
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to allocate funds",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   return {
     buckets: buckets || [],
     isLoading,
@@ -83,8 +149,12 @@ export const useBuckets = () => {
     createBucket: createBucketMutation.mutate,
     updateBucket: updateBucketMutation.mutate,
     deleteBucket: deleteBucketMutation.mutate,
+    reallocateFunds: reallocateFundsMutation.mutate,
+    allocateFunds: allocateFundsMutation.mutate,
     isCreating: createBucketMutation.isPending,
     isUpdating: updateBucketMutation.isPending,
     isDeleting: deleteBucketMutation.isPending,
+    isReallocating: reallocateFundsMutation.isPending,
+    isAllocating: allocateFundsMutation.isPending,
   };
 };

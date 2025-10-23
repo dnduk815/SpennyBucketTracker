@@ -28,7 +28,8 @@ export const requireAuth = (req: Request, res: Response, next: NextFunction) => 
 export const validateRequest = (schema: z.ZodSchema) => {
   return (req: Request, res: Response, next: NextFunction) => {
     try {
-      schema.parse(req.body);
+      const validatedData = schema.parse(req.body);
+      req.body = validatedData;
       next();
     } catch (error) {
       if (error instanceof z.ZodError) {

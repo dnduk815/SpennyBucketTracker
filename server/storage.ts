@@ -1,4 +1,4 @@
-import { drizzle } from "drizzle-orm/neon-serverless";
+import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
 import { eq, and, desc } from "drizzle-orm";
 import { 
@@ -10,10 +10,13 @@ import {
   type InsertTransaction,
   type IncomeRecord,
   type InsertIncomeRecord,
+  type AllocationHistory,
+  type InsertAllocationHistory,
   users,
   buckets,
   transactions,
-  incomeRecords
+  incomeRecords,
+  allocationHistory
 } from "@shared/schema";
 
 // modify the interface with any CRUD methods
@@ -44,6 +47,23 @@ export interface IStorage {
   // Income operations
   getIncomeRecordsByUserId(userId: string): Promise<IncomeRecord[]>;
   createIncomeRecord(income: InsertIncomeRecord & { userId: string }): Promise<IncomeRecord>;
+  deleteIncomeRecord(id: string, userId: string): Promise<void>;
+
+  // Allocation history operations
+  getAllocationHistoryByUserId(userId: string, limit?: number): Promise<AllocationHistory[]>;
+  createAllocationHistory(allocation: InsertAllocationHistory & { userId: string }): Promise<AllocationHistory>;
+
+  // User management operations
+  deleteUser(id: string): Promise<void>;
+
+  // Fund reallocation operations
+  reallocateFunds(
+    sourceBucketId: string,
+    destinationBucketId: string | null,
+    amount: number,
+    transferType: 'balance' | 'allocation',
+    userId: string
+  ): Promise<{ buckets: Bucket[] }>;
 }
 
 export class MemStorage implements IStorage {
@@ -51,12 +71,14 @@ export class MemStorage implements IStorage {
   private buckets: Map<string, Bucket>;
   private transactions: Map<string, Transaction>;
   private incomeRecords: Map<string, IncomeRecord>;
+  private allocationHistory: Map<string, AllocationHistory>;
 
   constructor() {
     this.users = new Map();
     this.buckets = new Map();
     this.transactions = new Map();
     this.incomeRecords = new Map();
+    this.allocationHistory = new Map();
   }
 
   async getUser(id: string): Promise<User | undefined> {
@@ -92,7 +114,30 @@ export class MemStorage implements IStorage {
       updatedAt: now
     };
     this.users.set(id, user);
+    
+    // Create default buckets for new user
+    await this.createDefaultBuckets(id);
+    
     return user;
+  }
+
+  private async createDefaultBuckets(userId: string): Promise<void> {
+    const defaultBuckets = [
+      { name: "Groceries", iconName: "Shopping" },
+      { name: "Transportation", iconName: "Transportation" },
+      { name: "Entertainment", iconName: "Entertainment" },
+      { name: "Dining Out", iconName: "Dining" }
+    ];
+
+    for (const bucket of defaultBuckets) {
+      await this.createBucket({
+        userId,
+        name: bucket.name,
+        iconName: bucket.iconName,
+        allocatedAmount: "0",
+        currentBalance: "0"
+      });
+    }
   }
 
   async updateUser(id: string, updates: Partial<User>): Promise<User> {
@@ -173,6 +218,7 @@ export class MemStorage implements IStorage {
       date: transaction.date || now,
       createdAt: now
     };
+    
     this.transactions.set(id, newTransaction);
     return newTransaction;
   }
@@ -202,6 +248,122 @@ export class MemStorage implements IStorage {
     };
     this.incomeRecords.set(id, newIncome);
     return newIncome;
+  }
+
+  async deleteIncomeRecord(id: string, userId: string): Promise<void> {
+    const incomeRecord = this.incomeRecords.get(id);
+    if (!incomeRecord || incomeRecord.userId !== userId) throw new Error("Income record not found");
+    this.incomeRecords.delete(id);
+  }
+
+  async getAllocationHistoryByUserId(userId: string, limit?: number): Promise<AllocationHistory[]> {
+    const userAllocations = Array.from(this.allocationHistory.values())
+      .filter((allocation) => allocation.userId === userId)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    
+    return limit ? userAllocations.slice(0, limit) : userAllocations;
+  }
+
+  async createAllocationHistory(allocation: InsertAllocationHistory & { userId: string }): Promise<AllocationHistory> {
+    const id = crypto.randomUUID();
+    const now = new Date();
+    const newAllocation: AllocationHistory = {
+      id,
+      userId: allocation.userId,
+      sourceBucketId: allocation.sourceBucketId || null,
+      destinationBucketId: allocation.destinationBucketId || null,
+      amount: allocation.amount,
+      transferType: allocation.transferType,
+      description: allocation.description || null,
+      date: allocation.date || now,
+      createdAt: now
+    };
+    this.allocationHistory.set(id, newAllocation);
+    return newAllocation;
+  }
+
+  async deleteUser(id: string): Promise<void> {
+    const user = this.users.get(id);
+    if (!user) throw new Error("User not found");
+    this.users.delete(id);
+  }
+
+  async reallocateFunds(
+    sourceBucketId: string,
+    destinationBucketId: string | null,
+    amount: number,
+    transferType: 'balance' | 'allocation',
+    userId: string
+  ): Promise<{ buckets: Bucket[] }> {
+    console.log("MemStorage reallocateFunds called with:", { sourceBucketId, destinationBucketId, amount, transferType, userId });
+    
+    // Get source bucket
+    const sourceBucket = this.buckets.get(sourceBucketId);
+    if (!sourceBucket || sourceBucket.userId !== userId) {
+      throw new Error("Source bucket not found");
+    }
+
+    // Get destination bucket if specified
+    let destinationBucket: Bucket | null = null;
+    if (destinationBucketId) {
+      const bucket = this.buckets.get(destinationBucketId);
+      if (!bucket || bucket.userId !== userId) {
+        throw new Error("Destination bucket not found");
+      }
+      destinationBucket = bucket;
+    }
+
+    // Perform the transfer
+    const updatedBuckets: Bucket[] = [];
+
+    if (transferType === 'balance') {
+      // Balance transfer: move currentBalance only
+      const newSourceBalance = (parseFloat(sourceBucket.currentBalance) - amount).toString();
+      const updatedSource = { ...sourceBucket, currentBalance: newSourceBalance, updatedAt: new Date() };
+      this.buckets.set(sourceBucketId, updatedSource);
+      updatedBuckets.push(updatedSource);
+
+      if (destinationBucket && destinationBucketId) {
+        // Transfer to another bucket
+        const newDestBalance = (parseFloat(destinationBucket.currentBalance) + amount).toString();
+        const updatedDest = { ...destinationBucket, currentBalance: newDestBalance, updatedAt: new Date() };
+        this.buckets.set(destinationBucketId, updatedDest);
+        updatedBuckets.push(updatedDest);
+      } else {
+        // Transfer to "Unallocated" - reduce allocatedAmount to make funds available for new allocation
+        const newSourceAllocated = (parseFloat(sourceBucket.allocatedAmount) - amount).toString();
+        const updatedSourceAllocated = { ...updatedSource, allocatedAmount: newSourceAllocated, updatedAt: new Date() };
+        this.buckets.set(sourceBucketId, updatedSourceAllocated);
+        updatedBuckets[0] = updatedSourceAllocated; // Update the first bucket in the array
+      }
+    } else {
+      // Allocation transfer: move both allocatedAmount and currentBalance
+      const newSourceAllocated = (parseFloat(sourceBucket.allocatedAmount) - amount).toString();
+      const newSourceBalance = (parseFloat(sourceBucket.currentBalance) - amount).toString();
+      const updatedSource = { 
+        ...sourceBucket, 
+        allocatedAmount: newSourceAllocated,
+        currentBalance: newSourceBalance, 
+        updatedAt: new Date() 
+      };
+      this.buckets.set(sourceBucketId, updatedSource);
+      updatedBuckets.push(updatedSource);
+
+      if (destinationBucket && destinationBucketId) {
+        const newDestAllocated = (parseFloat(destinationBucket.allocatedAmount) + amount).toString();
+        const newDestBalance = (parseFloat(destinationBucket.currentBalance) + amount).toString();
+        const updatedDest = { 
+          ...destinationBucket, 
+          allocatedAmount: newDestAllocated,
+          currentBalance: newDestBalance, 
+          updatedAt: new Date() 
+        };
+        this.buckets.set(destinationBucketId, updatedDest);
+        updatedBuckets.push(updatedDest);
+      }
+    }
+
+    return { buckets: updatedBuckets };
   }
 }
 
@@ -239,7 +401,31 @@ export class DbStorage implements IStorage {
 
   async createUser(user: InsertUser): Promise<User> {
     const result = await this.db.insert(users).values(user).returning();
-    return result[0];
+    const newUser = result[0];
+    
+    // Create default buckets for new user
+    await this.createDefaultBuckets(newUser.id);
+    
+    return newUser;
+  }
+
+  private async createDefaultBuckets(userId: string): Promise<void> {
+    const defaultBuckets = [
+      { name: "Groceries", iconName: "Shopping" },
+      { name: "Transportation", iconName: "Transportation" },
+      { name: "Entertainment", iconName: "Entertainment" },
+      { name: "Dining Out", iconName: "Dining" }
+    ];
+
+    for (const bucket of defaultBuckets) {
+      await this.createBucket({
+        userId,
+        name: bucket.name,
+        iconName: bucket.iconName,
+        allocatedAmount: "0",
+        currentBalance: "0"
+      });
+    }
   }
 
   async updateUser(id: string, updates: Partial<User>): Promise<User> {
@@ -300,14 +486,14 @@ export class DbStorage implements IStorage {
 
   // Transaction operations
   async getTransactionsByUserId(userId: string, limit?: number): Promise<Transaction[]> {
-    let query = this.db
+    const query = this.db
       .select()
       .from(transactions)
       .where(eq(transactions.userId, userId))
       .orderBy(desc(transactions.createdAt));
     
     if (limit) {
-      query = query.limit(limit);
+      return await query.limit(limit);
     }
     
     return await query;
@@ -350,9 +536,121 @@ export class DbStorage implements IStorage {
     const result = await this.db.insert(incomeRecords).values(income).returning();
     return result[0];
   }
+
+  async deleteIncomeRecord(id: string, userId: string): Promise<void> {
+    const result = await this.db
+      .delete(incomeRecords)
+      .where(and(eq(incomeRecords.id, id), eq(incomeRecords.userId, userId)));
+    
+    if (result.rowCount === 0) {
+      throw new Error("Income record not found");
+    }
+  }
+
+  async getAllocationHistoryByUserId(userId: string, limit?: number): Promise<AllocationHistory[]> {
+    const query = this.db
+      .select()
+      .from(allocationHistory)
+      .where(eq(allocationHistory.userId, userId))
+      .orderBy(desc(allocationHistory.createdAt));
+    
+    if (limit) {
+      return await query.limit(limit);
+    }
+    
+    return await query;
+  }
+
+  async createAllocationHistory(allocation: InsertAllocationHistory & { userId: string }): Promise<AllocationHistory> {
+    const result = await this.db.insert(allocationHistory).values(allocation).returning();
+    return result[0];
+  }
+
+  async deleteUser(id: string): Promise<void> {
+    const result = await this.db
+      .delete(users)
+      .where(eq(users.id, id));
+    
+    if (result.rowCount === 0) {
+      throw new Error("User not found");
+    }
+  }
+
+  async reallocateFunds(
+    sourceBucketId: string,
+    destinationBucketId: string | null,
+    amount: number,
+    transferType: 'balance' | 'allocation',
+    userId: string
+  ): Promise<{ buckets: Bucket[] }> {
+    // Get source bucket
+    const sourceBucket = await this.getBucket(sourceBucketId, userId);
+    if (!sourceBucket) {
+      throw new Error("Source bucket not found");
+    }
+
+    // Get destination bucket if specified
+    let destinationBucket: Bucket | null = null;
+    if (destinationBucketId) {
+      const bucket = await this.getBucket(destinationBucketId, userId);
+      if (!bucket) {
+        throw new Error("Destination bucket not found");
+      }
+      destinationBucket = bucket;
+    }
+
+    const updatedBuckets: Bucket[] = [];
+
+    if (transferType === 'balance') {
+      // Balance transfer: move currentBalance only
+      const newSourceBalance = (parseFloat(sourceBucket.currentBalance) - amount).toString();
+      
+      if (destinationBucket && destinationBucketId) {
+        // Transfer to another bucket
+        const newDestBalance = (parseFloat(destinationBucket.currentBalance) + amount).toString();
+        const updatedSource = await this.updateBucket(sourceBucketId, userId, { 
+          currentBalance: newSourceBalance 
+        });
+        const updatedDest = await this.updateBucket(destinationBucketId, userId, { 
+          currentBalance: newDestBalance 
+        });
+        updatedBuckets.push(updatedSource);
+        updatedBuckets.push(updatedDest);
+      } else {
+        // Transfer to "Unallocated" - reduce allocatedAmount to make funds available for new allocation
+        const newSourceAllocated = (parseFloat(sourceBucket.allocatedAmount) - amount).toString();
+        const updatedSource = await this.updateBucket(sourceBucketId, userId, { 
+          currentBalance: newSourceBalance,
+          allocatedAmount: newSourceAllocated
+        });
+        updatedBuckets.push(updatedSource);
+      }
+    } else {
+      // Allocation transfer: move both allocatedAmount and currentBalance
+      const newSourceAllocated = (parseFloat(sourceBucket.allocatedAmount) - amount).toString();
+      const newSourceBalance = (parseFloat(sourceBucket.currentBalance) - amount).toString();
+      const updatedSource = await this.updateBucket(sourceBucketId, userId, { 
+        allocatedAmount: newSourceAllocated,
+        currentBalance: newSourceBalance 
+      });
+      updatedBuckets.push(updatedSource);
+
+      if (destinationBucket && destinationBucketId) {
+        const newDestAllocated = (parseFloat(destinationBucket.allocatedAmount) + amount).toString();
+        const newDestBalance = (parseFloat(destinationBucket.currentBalance) + amount).toString();
+        const updatedDest = await this.updateBucket(destinationBucketId, userId, { 
+          allocatedAmount: newDestAllocated,
+          currentBalance: newDestBalance 
+        });
+        updatedBuckets.push(updatedDest);
+      }
+    }
+
+    return { buckets: updatedBuckets };
+  }
 }
 
-// Use DbStorage in production, MemStorage for testing
-export const storage = process.env.NODE_ENV === "test" 
+// Use DbStorage in production, MemStorage for testing or when DATABASE_URL is not available
+export const storage = process.env.NODE_ENV === "test" || !process.env.DATABASE_URL
   ? new MemStorage() 
   : new DbStorage();

@@ -1,4 +1,4 @@
-import type { Express } from "express";
+import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import passport from "passport";
 import bcrypt from "bcrypt";
@@ -51,7 +51,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Authentication routes
   app.post("/api/auth/register", 
     validateRequest(registerSchema),
-    asyncHandler(async (req, res) => {
+    asyncHandler(async (req: Request, res: Response) => {
       const { username, email, name, password } = req.body;
       
       // Check if user already exists
@@ -93,7 +93,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     passport.authenticate("local", { 
       failureMessage: "Invalid email or password" 
     }),
-    (req, res) => {
+    (req: Request, res: Response) => {
       res.json({ 
         message: "Login successful",
         user: {
@@ -106,8 +106,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   );
 
-  app.post("/api/auth/logout", (req, res) => {
-    req.logout((err) => {
+  app.post("/api/auth/logout", (req: Request, res: Response) => {
+    req.logout((err: any) => {
       if (err) {
         return res.status(500).json({ message: "Logout failed" });
       }
@@ -115,7 +115,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
-  app.get("/api/auth/me", requireAuth, (req, res) => {
+  app.get("/api/auth/me", requireAuth, (req: Request, res: Response) => {
     res.json({
       user: {
         id: req.user!.id,
@@ -132,14 +132,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/auth/google/callback",
     passport.authenticate("google", { failureRedirect: "/auth?error=google" }),
-    (req, res) => {
+    (req: Request, res: Response) => {
       res.redirect("/");
     }
   );
 
   // Bucket routes
   app.get("/api/buckets", requireAuth, 
-    asyncHandler(async (req, res) => {
+    asyncHandler(async (req: Request, res: Response) => {
       const buckets = await storage.getBucketsByUserId(req.user!.id);
       res.json({ buckets });
     })
@@ -147,7 +147,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/buckets", requireAuth,
     validateRequest(insertBucketSchema),
-    asyncHandler(async (req, res) => {
+    asyncHandler(async (req: Request, res: Response) => {
       const bucket = await storage.createBucket({
         ...req.body,
         userId: req.user!.id
@@ -157,7 +157,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   );
 
   app.get("/api/buckets/:id", requireAuth,
-    asyncHandler(async (req, res) => {
+    asyncHandler(async (req: Request, res: Response) => {
       const bucket = await storage.getBucket(req.params.id, req.user!.id);
       if (!bucket) {
         return res.status(404).json({ message: "Bucket not found" });
@@ -168,14 +168,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/buckets/:id", requireAuth,
     validateRequest(updateBucketSchema),
-    asyncHandler(async (req, res) => {
+    asyncHandler(async (req: Request, res: Response) => {
       const bucket = await storage.updateBucket(req.params.id, req.user!.id, req.body);
       res.json({ bucket });
     })
   );
 
   app.delete("/api/buckets/:id", requireAuth,
-    asyncHandler(async (req, res) => {
+    asyncHandler(async (req: Request, res: Response) => {
       await storage.deleteBucket(req.params.id, req.user!.id);
       res.json({ message: "Bucket deleted successfully" });
     })
@@ -183,7 +183,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/buckets/allocate", requireAuth,
     validateRequest(allocateFundsSchema),
-    asyncHandler(async (req, res) => {
+    asyncHandler(async (req: Request, res: Response) => {
       const { allocations, description } = req.body;
       
       // Validate allocations object
@@ -238,7 +238,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/buckets/reallocate", requireAuth,
     validateRequest(reallocateFundsSchema),
-    asyncHandler(async (req, res) => {
+    asyncHandler(async (req: Request, res: Response) => {
       console.log("Reallocate endpoint called with:", req.body);
       const { sourceBucketId, destinationBucketId, amount, transferType } = req.body;
       
@@ -313,7 +313,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Transaction routes
   app.get("/api/transactions", requireAuth,
-    asyncHandler(async (req, res) => {
+    asyncHandler(async (req: Request, res: Response) => {
       const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
       const bucketId = req.query.bucketId as string;
       
@@ -330,7 +330,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/transactions", requireAuth,
     validateRequest(insertTransactionSchema),
-    asyncHandler(async (req, res) => {
+    asyncHandler(async (req: Request, res: Response) => {
       // Verify bucket belongs to user
       const bucket = await storage.getBucket(req.body.bucketId, req.user!.id);
       if (!bucket) {
@@ -355,7 +355,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   );
 
   app.delete("/api/transactions/:id", requireAuth,
-    asyncHandler(async (req, res) => {
+    asyncHandler(async (req: Request, res: Response) => {
       // Get transaction to find bucket
       const transactions = await storage.getTransactionsByUserId(req.user!.id);
       const transaction = transactions.find(t => t.id === req.params.id);
@@ -382,7 +382,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Income routes
   app.get("/api/income", requireAuth,
-    asyncHandler(async (req, res) => {
+    asyncHandler(async (req: Request, res: Response) => {
       const incomeRecords = await storage.getIncomeRecordsByUserId(req.user!.id);
       res.json({ incomeRecords });
     })
@@ -390,7 +390,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/income", requireAuth,
     validateRequest(insertIncomeRecordSchema),
-    asyncHandler(async (req, res) => {
+    asyncHandler(async (req: Request, res: Response) => {
       const incomeRecord = await storage.createIncomeRecord({
         ...req.body,
         userId: req.user!.id,
@@ -401,7 +401,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   );
 
   app.delete("/api/income/:id", requireAuth,
-    asyncHandler(async (req, res) => {
+    asyncHandler(async (req: Request, res: Response) => {
       await storage.deleteIncomeRecord(req.params.id, req.user!.id);
       res.json({ message: "Income record deleted successfully" });
     })
@@ -409,7 +409,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Allocation history routes
   app.get("/api/allocations", requireAuth,
-    asyncHandler(async (req, res) => {
+    asyncHandler(async (req: Request, res: Response) => {
       const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
       const allocationHistory = await storage.getAllocationHistoryByUserId(req.user!.id, limit);
       res.json({ allocationHistory });
@@ -418,7 +418,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // User management routes
   app.delete("/api/user/data", requireAuth,
-    asyncHandler(async (req, res) => {
+    asyncHandler(async (req: Request, res: Response) => {
       const userId = req.user!.id;
       
       // Delete all user's transactions first (to handle MemStorage which doesn't have cascade deletes)
@@ -444,19 +444,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   );
 
   app.delete("/api/user/account", requireAuth,
-    asyncHandler(async (req, res) => {
+    asyncHandler(async (req: Request, res: Response) => {
       const userId = req.user!.id;
       
       // First, logout and destroy the session to prevent session serialization errors
       await new Promise<void>((resolve, reject) => {
-        req.logout((err) => {
+        req.logout((err: any) => {
           if (err) {
             reject(err);
             return;
           }
           
           // Destroy the session after logout
-          req.session.destroy((sessionErr) => {
+          req.session.destroy((sessionErr: any) => {
             if (sessionErr) {
               reject(sessionErr);
             } else {

@@ -1,5 +1,11 @@
 import { useState, useEffect } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,7 +20,10 @@ interface Bucket {
 interface AllocateFundsDialogProps {
   buckets: Bucket[];
   unallocatedFunds: number;
-  onAllocate?: (allocations: Record<string, number>) => void;
+  onAllocate?: (
+    allocations: Record<string, number>,
+    description?: string
+  ) => void;
 }
 
 export default function AllocateFundsDialog({
@@ -24,11 +33,12 @@ export default function AllocateFundsDialog({
 }: AllocateFundsDialogProps) {
   const [open, setOpen] = useState(false);
   const [allocations, setAllocations] = useState<Record<string, string>>({});
+  const [description, setDescription] = useState("");
   const { toast } = useToast();
 
   useEffect(() => {
     const initial: Record<string, string> = {};
-    buckets.forEach(bucket => {
+    buckets.forEach((bucket) => {
       initial[bucket.id] = "";
     });
     setAllocations(initial);
@@ -63,7 +73,7 @@ export default function AllocateFundsDialog({
       }
     });
 
-    onAllocate?.(finalAllocations);
+    onAllocate?.(finalAllocations, description);
 
     toast({
       title: "Funds allocated",
@@ -87,15 +97,36 @@ export default function AllocateFundsDialog({
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="bg-muted p-4 rounded-md">
-            <div className="text-sm text-muted-foreground">Available to allocate</div>
-            <div className="text-2xl font-bold tabular-nums" data-testid="text-unallocated-funds">
+            <div className="text-sm text-muted-foreground">
+              Available to allocate
+            </div>
+            <div
+              className="text-2xl font-bold tabular-nums"
+              data-testid="text-unallocated-funds"
+            >
               ${unallocatedFunds.toFixed(2)}
             </div>
             {getTotalAllocated() > 0 && (
-              <div className={`text-sm mt-2 tabular-nums ${remaining < 0 ? 'text-destructive' : 'text-muted-foreground'}`} data-testid="text-remaining">
+              <div
+                className={`text-sm mt-2 tabular-nums ${
+                  remaining < 0 ? "text-destructive" : "text-muted-foreground"
+                }`}
+                data-testid="text-remaining"
+              >
                 ${remaining.toFixed(2)} remaining
               </div>
             )}
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="description">Description (optional)</Label>
+            <Input
+              id="description"
+              placeholder="e.g., Monthly budget allocation"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              data-testid="input-description"
+            />
           </div>
 
           <div className="space-y-3 max-h-60 overflow-y-auto">
@@ -109,10 +140,15 @@ export default function AllocateFundsDialog({
                   placeholder="0.00"
                   value={allocations[bucket.id] || ""}
                   onChange={(e) =>
-                    setAllocations({ ...allocations, [bucket.id]: e.target.value })
+                    setAllocations({
+                      ...allocations,
+                      [bucket.id]: e.target.value,
+                    })
                   }
                   className="tabular-nums"
-                  data-testid={`input-allocate-${bucket.name.toLowerCase().replace(/\s+/g, '-')}`}
+                  data-testid={`input-allocate-${bucket.name
+                    .toLowerCase()
+                    .replace(/\s+/g, "-")}`}
                 />
               </div>
             ))}
@@ -128,7 +164,11 @@ export default function AllocateFundsDialog({
             >
               Cancel
             </Button>
-            <Button type="submit" className="flex-1" data-testid="button-submit">
+            <Button
+              type="submit"
+              className="flex-1"
+              data-testid="button-submit"
+            >
               Allocate
             </Button>
           </div>

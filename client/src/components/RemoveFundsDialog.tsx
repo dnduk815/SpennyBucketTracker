@@ -1,5 +1,11 @@
 import { useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,7 +18,10 @@ interface RemoveFundsDialogProps {
   onRemoveFunds?: (amount: number, reason: string) => void;
 }
 
-export default function RemoveFundsDialog({ unallocatedFunds, onRemoveFunds }: RemoveFundsDialogProps) {
+export default function RemoveFundsDialog({
+  unallocatedFunds,
+  onRemoveFunds,
+}: RemoveFundsDialogProps) {
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState("");
   const [reason, setReason] = useState("");
@@ -20,7 +29,7 @@ export default function RemoveFundsDialog({ unallocatedFunds, onRemoveFunds }: R
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!amount) {
       toast({
         title: "Missing amount",
@@ -51,11 +60,6 @@ export default function RemoveFundsDialog({ unallocatedFunds, onRemoveFunds }: R
 
     onRemoveFunds?.(numAmount, reason.trim());
 
-    toast({
-      title: "Funds removed",
-      description: `$${numAmount.toFixed(2)} removed from unallocated funds`,
-    });
-
     setAmount("");
     setReason("");
     setOpen(false);
@@ -75,8 +79,13 @@ export default function RemoveFundsDialog({ unallocatedFunds, onRemoveFunds }: R
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="bg-muted p-4 rounded-md">
-            <div className="text-sm text-muted-foreground">Available unallocated</div>
-            <div className="text-2xl font-bold tabular-nums" data-testid="text-available-funds">
+            <div className="text-sm text-muted-foreground">
+              Available unallocated
+            </div>
+            <div
+              className="text-2xl font-bold tabular-nums"
+              data-testid="text-available-funds"
+            >
               ${unallocatedFunds.toFixed(2)}
             </div>
           </div>
@@ -117,7 +126,12 @@ export default function RemoveFundsDialog({ unallocatedFunds, onRemoveFunds }: R
             >
               Cancel
             </Button>
-            <Button type="submit" variant="destructive" className="flex-1" data-testid="button-submit">
+            <Button
+              type="submit"
+              variant="destructive"
+              className="flex-1"
+              data-testid="button-submit"
+            >
               Remove Funds
             </Button>
           </div>

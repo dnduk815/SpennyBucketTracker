@@ -1,0 +1,4 @@
+5:57:32 AM [express] serving on port 5173
+5:57:56 AM [express] GET /api/health 200 in 109ms
+
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
